@@ -1,0 +1,100 @@
+Language: Cpp
+BasedOnStyle: LLVM
+
+# ========== НАСТРОЙКИ ДЛЯ БИБЛИОТЕК И INCLUDE ==========
+IncludeCategories:
+  - Regex: '^<.*'
+    Priority: 1
+  - Regex: '^".*'
+    Priority: 2
+  - Regex: '.*'
+    Priority: 3
+IncludeIsMainRegex: '([-_](test|unittest))?$'
+
+# ========== ОТСТУПЫ И ПУСТЫЕ СТРОКИ ==========
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Пустые строки для разделения блоков кода
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: true
+
+# ========== ФИГУРНЫЕ СКОБКИ ==========
+BreakBeforeBraces: Attach
+
+# ========== ДЛИНА СТРОКИ ==========
+ColumnLimit: 100
+
+# ========== РАЗРЫВЫ СТРОК И ВЫРАВНИВАНИЕ ==========
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortCaseLabelsOnASingleLine: false
+
+# Перенос операторов
+BreakBeforeBinaryOperators: None
+
+# Выравнивание
+AlignAfterOpenBracket: Align
+AlignConsecutiveMacros: None
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignOperands: Align
+AlignTrailingComments: true
+
+# ========== ОСТАЛЬНЫЕ НАСТРОЙКИ ==========
+AccessModifierOffset: -4
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortLambdasOnASingleLine: All
+
+# Конструкторы
+BreakConstructorInitializers: AfterColon
+BreakConstructorInitializersBeforeComma: false
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+ConstructorInitializerIndentWidth: 4
+
+# Отступы
+IndentCaseLabels: true
+IndentCaseBlocks: false
+IndentGotoLabels: true
+IndentPPDirectives: BeforeHash
+InsertNewlineAtEOF: true
+
+# Пробелы
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesInConditionalStatement: false
+SpacesInCStyleCastParentheses: false
+
+# Прочее
+BinPackArguments: true
+BinPackParameters: true
+FixNamespaceComments: false
+NamespaceIndentation: None
+QualifierAlignment: Leave
+SortUsingDeclarations: true
+SpacesInAngles: Never
+SpacesInContainerLiterals: true
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+MacroBlockBegin: ''
+MacroBlockEnd: ''
+
+AlwaysBreakTemplateDeclarations: Yes
+PointerAlignment: Left
+ReferenceAlignment: Left
+...
