@@ -59,7 +59,7 @@ Result TcpTransport::connect() {
     setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(socket_fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
-    SHOW_INFO("TCP", "Connected to " + config_.ip + ":" + std::to_string(config_.port));
+    SHOW_INFO("TCP", "Attempt connect to " + config_.ip + ":" + std::to_string(config_.port));
 
     if (::connect(socket_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         const int err = errno;
@@ -84,9 +84,9 @@ Result TcpTransport::connect() {
                 SHOW_ERROR("TCP", "Unknown error (" + std::to_string(err) + "): " + err_msg);
                 return Result::NETWORK_ERROR;
         }
-
     }
 
+    SHOW_INFO("TCP", "Connected to " + config_.ip + ":" + std::to_string(config_.port));
     return Result::OK;
 }
 
