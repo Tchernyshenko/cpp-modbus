@@ -17,8 +17,7 @@ constexpr int KEEP_IDLE = 10;
 constexpr int KEEP_INTERVAL = 5;
 constexpr int KEEP_COUNT = 3;
 
-TcpTransport::TcpTransport(Config config) :
-    config_(std::move(config)), socket_fd_(INVALID) {
+TcpTransport::TcpTransport(Config config) : config_(std::move(config)), socket_fd_(INVALID) {
 }
 
 TcpTransport::~TcpTransport() {
@@ -52,31 +51,6 @@ Result TcpTransport::connect() {
         return Result::INVALID_CONFIG;
     }
 
-    if (::connect(socket_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        const int err = errno;
-        const std::string err_msg = strerror(err);
-        disconnect();
-        switch (err) {
-            case ETIMEDOUT:
-                SHOW_ERROR("TCP", "Connection timed out to " + config_.ip + ":" +
-                           std::to_string(config_.port));
-                return Result::CONNECT_TIMEOUT;
-            case ECONNREFUSED:
-                SHOW_ERROR("TCP", "Connection refused by " + config_.ip + ":" +
-                           std::to_string(config_.port));
-                return Result::CONNECTION_REFUSED;
-            case ENETUNREACH:
-            case EHOSTUNREACH:
-                SHOW_ERROR("TCP", "Network unreachable for " + config_.ip + ":" +
-                           std::to_string(config_.port));
-                return Result::NETWORK_UNREACHABLE;
-            default:
-                SHOW_ERROR("TCP",
-                           "Unknown connection error (" + std::to_string(err) + "): " + err_msg);
-                return Result::NETWORK_ERROR;
-        }
-    }
-
     const timeval timeout{
         config_.timeout_ms / 1000,         // секунды
         (config_.timeout_ms % 1000) * 1000 // микросекунды
@@ -86,6 +60,33 @@ Result TcpTransport::connect() {
     setsockopt(socket_fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
     SHOW_INFO("TCP", "Connected to " + config_.ip + ":" + std::to_string(config_.port));
+
+    if (::connect(socket_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        const int err = errno;
+        const std::string err_msg = strerror(err);
+        disconnect();
+        switch (err) {
+            case ETIMEDOUT:
+            case EINPROGRESS:
+                SHOW_WARN("TCP", "Connection timeout (or in progress) to " + config_.ip);
+                return Result::CONNECT_TIMEOUT; // disconnect() уже вызван выше, дублировать не нужно
+
+            case ECONNREFUSED:
+                SHOW_ERROR("TCP", "Connection refused by " + config_.ip);
+                return Result::CONNECTION_REFUSED;
+
+            case ENETUNREACH:
+            case EHOSTUNREACH:
+                SHOW_ERROR("TCP", "Network unreachable for " + config_.ip);
+                return Result::NETWORK_UNREACHABLE;
+
+            default:
+                SHOW_ERROR("TCP", "Unknown error (" + std::to_string(err) + "): " + err_msg);
+                return Result::NETWORK_ERROR;
+        }
+
+    }
+
     return Result::OK;
 }
 
@@ -98,7 +99,8 @@ void TcpTransport::disconnect() {
 }
 
 void TcpTransport::flush() {
-    if (socket_fd_ == INVALID) return;
+    if (socket_fd_ == INVALID)
+        return;
 
     uint8_t buffer[1024];
     ssize_t bytes_read;
@@ -109,7 +111,6 @@ void TcpTransport::flush() {
         SHOW_WARN("TCP", "Flushed " + std::to_string(bytes_read) + " bytes of stale data");
     }
 }
-
 
 Result TcpTransport::send(const std::vector<uint8_t>& request) {
     // В будущем здесь будет lock_guard для мьютекса
@@ -131,7 +132,6 @@ Result TcpTransport::send(const std::vector<uint8_t>& request) {
             flush();
         }
     }
-
 
     // 2. Если сокет невалиден (был закрыт ранее или только что через PEEK) — коннектимся
     if (socket_fd_ == INVALID) {
@@ -160,7 +160,8 @@ Result TcpTransport::send(const std::vector<uint8_t>& request) {
                 }
             }
 
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
 
             const std::string err_msg = strerror(errno);
             SHOW_ERROR("TCP", "Send failed: " + err_msg);
@@ -174,7 +175,6 @@ Result TcpTransport::send(const std::vector<uint8_t>& request) {
 
     return Result::OK;
 }
-
 
 Result TcpTransport::receive(std::vector<uint8_t>& raw_response, const size_t expected_size) {
     raw_response.resize(expected_size);
@@ -206,7 +206,8 @@ Result TcpTransport::receive(std::vector<uint8_t>& raw_response, const size_t ex
     }
 
     if (static_cast<size_t>(received) < expected_size) {
-        SHOW_ERROR("TCP", "Incomplete data received: " + std::to_string(received) + "/" + std::to_string(expected_size));
+        SHOW_ERROR("TCP", "Incomplete data received: " + std::to_string(received) + "/" +
+                              std::to_string(expected_size));
         // Частичные данные для Modbus бесполезны, закрываемся для очистки буферов
         disconnect();
         return Result::RECV_FAILED;
@@ -214,7 +215,6 @@ Result TcpTransport::receive(std::vector<uint8_t>& raw_response, const size_t ex
 
     return Result::OK;
 }
-
 
 const Config& TcpTransport::config() const {
     return config_;
