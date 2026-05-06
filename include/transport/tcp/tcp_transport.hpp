@@ -17,6 +17,8 @@ public:
     [[nodiscard]] const Config& config() const override;
 
 private:
+    void flush();
+
     Config config_;
     int socket_fd_;
 };

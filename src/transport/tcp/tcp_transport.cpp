@@ -6,12 +6,19 @@
 #include <unistd.h>
 
 #include <logger/logger.hpp>
+#include <netinet/tcp.h>
 
 namespace transport {
 
 constexpr int INVALID = -1;
 
-TcpTransport::TcpTransport(Config config) : config_(std::move(config)), socket_fd_(INVALID) {
+constexpr int ENABLE = 1;
+constexpr int KEEP_IDLE = 10;
+constexpr int KEEP_INTERVAL = 5;
+constexpr int KEEP_COUNT = 3;
+
+TcpTransport::TcpTransport(Config config) :
+    config_(std::move(config)), socket_fd_(INVALID) {
 }
 
 TcpTransport::~TcpTransport() {
@@ -27,12 +34,14 @@ Result TcpTransport::connect() {
         return Result::NETWORK_ERROR;
     }
 
-    const timeval timeout{
-        config_.timeout_ms / 1000,         // секунды
-        (config_.timeout_ms % 1000) * 1000 // микросекунды
-    };
-    setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(socket_fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    // Включаем Keep-Alive
+    setsockopt(socket_fd_, SOL_SOCKET, SO_KEEPALIVE, &ENABLE, sizeof(ENABLE));
+    // Через какое время простоя начать слать пробы
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPIDLE, &KEEP_IDLE, sizeof(KEEP_IDLE));
+    // Интервал между пробами, если не ответили
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPINTVL, &KEEP_INTERVAL, sizeof(KEEP_INTERVAL));
+    // Количество неудачных проб до разрыва
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPCNT, &KEEP_COUNT, sizeof(KEEP_COUNT));
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -50,16 +59,16 @@ Result TcpTransport::connect() {
         switch (err) {
             case ETIMEDOUT:
                 SHOW_ERROR("TCP", "Connection timed out to " + config_.ip + ":" +
-                                      std::to_string(config_.port));
+                           std::to_string(config_.port));
                 return Result::CONNECT_TIMEOUT;
             case ECONNREFUSED:
                 SHOW_ERROR("TCP", "Connection refused by " + config_.ip + ":" +
-                                      std::to_string(config_.port));
+                           std::to_string(config_.port));
                 return Result::CONNECTION_REFUSED;
             case ENETUNREACH:
             case EHOSTUNREACH:
                 SHOW_ERROR("TCP", "Network unreachable for " + config_.ip + ":" +
-                                      std::to_string(config_.port));
+                           std::to_string(config_.port));
                 return Result::NETWORK_UNREACHABLE;
             default:
                 SHOW_ERROR("TCP",
@@ -67,6 +76,15 @@ Result TcpTransport::connect() {
                 return Result::NETWORK_ERROR;
         }
     }
+
+    const timeval timeout{
+        config_.timeout_ms / 1000,         // секунды
+        (config_.timeout_ms % 1000) * 1000 // микросекунды
+    };
+
+    setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(socket_fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
     SHOW_INFO("TCP", "Connected to " + config_.ip + ":" + std::to_string(config_.port));
     return Result::OK;
 }
@@ -75,31 +93,78 @@ void TcpTransport::disconnect() {
     if (socket_fd_ != INVALID) {
         close(socket_fd_);
         socket_fd_ = INVALID;
-        SHOW_DEBUG("TCP", "Socket disconnected");
+        SHOW_WARN("TCP", "Socket disconnected");
     }
 }
 
+void TcpTransport::flush() {
+    if (socket_fd_ == INVALID) return;
+
+    uint8_t buffer[1024];
+    ssize_t bytes_read;
+
+    // Вычитываем всё до тех пор, пока буфер не опустеет
+    // MSG_DONTWAIT делает вызов неблокирующим
+    while ((bytes_read = ::recv(socket_fd_, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0) {
+        SHOW_WARN("TCP", "Flushed " + std::to_string(bytes_read) + " bytes of stale data");
+    }
+}
+
+
 Result TcpTransport::send(const std::vector<uint8_t>& request) {
+    // В будущем здесь будет lock_guard для мьютекса
+
+    if (socket_fd_ != INVALID) {
+        uint8_t dummy;
+        ssize_t res = ::recv(socket_fd_, &dummy, 1, MSG_PEEK | MSG_DONTWAIT);
+
+        if (res == 0) {
+            SHOW_WARN("TCP", "Peer closed connection (FIN), reconnecting...");
+            disconnect();
+        } else if (res < 0 && (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+            SHOW_WARN("TCP", "Socket error detected via PEEK: " + std::string(strerror(errno)));
+            disconnect();
+        }
+
+        // Если сокет все еще жив, чистим мусор
+        if (socket_fd_ != INVALID) {
+            flush();
+        }
+    }
+
+
+    // 2. Если сокет невалиден (был закрыт ранее или только что через PEEK) — коннектимся
     if (socket_fd_ == INVALID) {
         if (const auto result = connect(); result != Result::OK) {
             return result;
         }
     }
 
+    // 3. Пытаемся отправить данные
     size_t total_sent = 0;
     const uint8_t* ptr = request.data();
     size_t remaining = request.size();
 
     while (remaining > 0) {
         const ssize_t sent = ::send(socket_fd_, ptr + total_sent, remaining, MSG_NOSIGNAL);
+
         if (sent < 0) {
-            if (errno == EINTR || errno == EAGAIN) {
-                // Прервано сигналом или временная блокировка — повторяем
-                continue;
+            // Если получили ошибку записи (EPIPE или ECONNRESET) на первом проходе
+            // есть смысл один раз попробовать переподключиться
+            if ((errno == EPIPE || errno == ECONNRESET) && total_sent == 0) {
+                SHOW_WARN("TCP", "Broken pipe on send, attempting instant reconnect...");
+                disconnect();
+                if (connect() == Result::OK) {
+                    // После переподключения обнуляем счетчики и пробуем снова (через continue)
+                    continue;
+                }
             }
+
+            if (errno == EINTR) continue;
+
             const std::string err_msg = strerror(errno);
-            disconnect();
             SHOW_ERROR("TCP", "Send failed: " + err_msg);
+            disconnect();
             return Result::SEND_FAILED;
         }
 
@@ -110,36 +175,46 @@ Result TcpTransport::send(const std::vector<uint8_t>& request) {
     return Result::OK;
 }
 
+
 Result TcpTransport::receive(std::vector<uint8_t>& raw_response, const size_t expected_size) {
     raw_response.resize(expected_size);
-    size_t total = 0;
 
-    while (total < expected_size) {
-        const ssize_t received =
-            recv(socket_fd_, raw_response.data() + total, expected_size - total, 0);
-        // Внутри receive()
-        if (received < 0) {
-            if (errno == EINTR) {
-                continue; // Сигнал, можно пробовать снова
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // Это тайм-аут, установленный через setsockopt
-                SHOW_WARN("TCP", "Receive timeout occurred");
-                return Result::RECV_FAILED; // Или Result::TIMEOUT, если добавите в enum
-            }
-            // Другие ошибки
+    // MSG_WAITALL заставляет ядро ждать заполнения всего буфера.
+    // Если сработает SO_RCVTIMEO, recv вернет -1 (EAGAIN) или меньше байт, чем просили.
+    const ssize_t received = ::recv(socket_fd_, raw_response.data(), expected_size, MSG_WAITALL);
+
+    if (received < 0) {
+        if (errno == EINTR) {
+            // Если прервано сигналом, можно попробовать перевызвать,
+            // но в контексте EVerest проще считать это ошибкой и переподключиться.
+            return receive(raw_response, expected_size);
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            SHOW_WARN("TCP", "Receive timeout occurred at " + config_.ip);
             disconnect();
             return Result::RECV_FAILED;
         }
-        if (received == 0) {
-            SHOW_WARN("TCP", "Connection closed by peer during receive");
-            disconnect();
-            return Result::CONNECTION_CLOSED;
-        }
-        total += received;
+        SHOW_ERROR("TCP", "Receive error: " + std::string(strerror(errno)));
+        disconnect();
+        return Result::RECV_FAILED;
     }
+
+    if (received == 0) {
+        SHOW_WARN("TCP", "Connection closed by peer");
+        disconnect();
+        return Result::CONNECTION_CLOSED;
+    }
+
+    if (static_cast<size_t>(received) < expected_size) {
+        SHOW_ERROR("TCP", "Incomplete data received: " + std::to_string(received) + "/" + std::to_string(expected_size));
+        // Частичные данные для Modbus бесполезны, закрываемся для очистки буферов
+        disconnect();
+        return Result::RECV_FAILED;
+    }
+
     return Result::OK;
 }
+
 
 const Config& TcpTransport::config() const {
     return config_;

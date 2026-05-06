@@ -38,7 +38,7 @@ private:
     std::mutex transport_mutex_;
     std::unique_ptr<transport::ITransport> transport_;
 
-    template <class EncodeFunc>
+    template<class EncodeFunc>
     Result executeRequest(uint8_t slave_id,
                           EncodeFunc encode_pdu,
                           std::vector<uint16_t>* modbus_registers = nullptr);
