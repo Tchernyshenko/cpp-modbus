@@ -1,9 +1,10 @@
 #pragma once
 
-#include "transport/transport.hpp"
+#include "transport/modbus_transport.hpp"
 
-namespace transport {
-class TcpTransport final : public ITransport {
+namespace modbus::transport {
+
+class TcpTransport final : public IModbusTcpTransport {
 public:
     explicit TcpTransport(Config config);
     ~TcpTransport() override;

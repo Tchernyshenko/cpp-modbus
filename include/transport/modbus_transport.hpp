@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace transport {
+namespace modbus::transport {
 
 struct Config {
     std::string ip;
@@ -15,34 +15,24 @@ struct Config {
 
 enum class Result {
     OK = 0,
-
-    // Конфигурационные ошибки
     INVALID_CONFIG,
-
-    // Ошибки подключения
     CONNECT_TIMEOUT,
     CONNECTION_REFUSED,
     NETWORK_UNREACHABLE,
-
-    // Общие сетевые ошибки
     NETWORK_ERROR,
-
-    // Ошибки передачи данных
     SEND_FAILED,
     RECV_FAILED,
-
-    // Закрытие соединения
     CONNECTION_CLOSED
 };
 
-class ITransport {
+class IModbusTcpTransport {
 public:
-    virtual ~ITransport() = default;
+    virtual ~IModbusTcpTransport() = default;
 
     virtual Result connect() = 0;
     virtual void disconnect() = 0;
 
-    virtual Result send(const std::vector<uint8_t>& data) = 0;
+    virtual Result send(const std::vector<std::uint8_t>& data) = 0;
     virtual Result receive(std::vector<uint8_t>& out, size_t expected_size) = 0;
 
     [[nodiscard]] virtual const Config& config() const = 0;
@@ -71,4 +61,4 @@ inline std::string toString(Result r) {
     }
 }
 
-} // namespace transport
+} // namespace modbus::transport
