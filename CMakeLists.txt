@@ -12,7 +12,7 @@ add_subdirectory(third_party/logger)
 add_library(cpp_modbus STATIC
         src/modbus/modbus_service.cpp
         src/modbus/modbus_codec.cpp
-        src/transport/tcp/tcp_transport.cpp
+        src/transport/tcp/modbus_transport.cpp
 )
 
 # Подключаем заголовки
