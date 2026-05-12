@@ -5,7 +5,7 @@
 
 #include "logger/logger.hpp"
 
-namespace modbus {
+namespace modbus::codec {
 
 // Константы Modbus TCP — фиксированные значения протокола
 constexpr auto PROTOCOL_ID = static_cast<uint8_t>(0x00); // ID протокола (всегда 0 для Modbus)
@@ -26,7 +26,7 @@ std::string toHex(const uint8_t value) {
 }
 
 // Кодирует заголовок MBAP (Modbus Application Protocol) для Modbus TCP
-std::vector<uint8_t> ModbusCodec::encodeModbusHeader(const uint16_t transaction_id,
+std::vector<uint8_t> Codec::encodeModbusHeader(const uint16_t transaction_id,
                                                      const uint16_t pdu_size,
                                                      const uint8_t slave_id) {
     const uint16_t length = 1 + pdu_size; // 1 byte slave_id + pdu_size
@@ -46,7 +46,7 @@ std::vector<uint8_t> ModbusCodec::encodeModbusHeader(const uint16_t transaction_
 }
 
 // Кодирует PDU для чтения регистров хранения (функция 0x03)
-std::vector<uint8_t> ModbusCodec::encodeReadHoldingRegisters(const uint16_t reg_addr,
+std::vector<uint8_t> Codec::encodeReadHoldingRegisters(const uint16_t reg_addr,
                                                              const uint16_t reg_count) {
     std::vector<uint8_t> pdu;
     pdu.push_back(FUNC_READ_HOLDING); // Добавляем код функции
@@ -56,7 +56,7 @@ std::vector<uint8_t> ModbusCodec::encodeReadHoldingRegisters(const uint16_t reg_
 }
 
 // Кодирует PDU для чтения входных регистров (функция 0x04)
-std::vector<uint8_t> ModbusCodec::encodeReadInputRegisters(const uint16_t reg_addr,
+std::vector<uint8_t> Codec::encodeReadInputRegisters(const uint16_t reg_addr,
                                                            const uint16_t reg_count) {
     std::vector<uint8_t> pdu;
     pdu.push_back(FUNC_READ_INPUT); // Добавляем код функции
@@ -66,7 +66,7 @@ std::vector<uint8_t> ModbusCodec::encodeReadInputRegisters(const uint16_t reg_ad
 }
 
 // Кодирует PDU для записи одного регистра (функция 0x06)
-std::vector<uint8_t> ModbusCodec::encodeWriteSingleRegister(const uint16_t reg_addr,
+std::vector<uint8_t> Codec::encodeWriteSingleRegister(const uint16_t reg_addr,
                                                             const uint16_t value) {
     std::vector<uint8_t> pdu;
     pdu.push_back(FUNC_WRITE_SINGLE); // Добавляем код функции
@@ -77,12 +77,12 @@ std::vector<uint8_t> ModbusCodec::encodeWriteSingleRegister(const uint16_t reg_a
 
 // Кодирует PDU для записи нескольких регистров (функция 0x10)
 std::vector<uint8_t>
-ModbusCodec::encodeWriteMultipleRegisters(const uint16_t reg_addr,
+Codec::encodeWriteMultipleRegisters(const uint16_t reg_addr,
                                           const std::vector<uint16_t>& values) {
 
     // Проверка корректности количества регистров (Modbus ограничивает до 123 регистров за раз)
     if (values.empty() || values.size() > 123) {
-        SHOW_WARN("Modbus",
+        SHOW_WARN("Modbus:Codec",
                   "Invalid register count for write multiple: " + std::to_string(values.size()));
         return {};
     }
@@ -100,7 +100,7 @@ ModbusCodec::encodeWriteMultipleRegisters(const uint16_t reg_addr,
     return pdu;
 }
 
-Result ModbusCodec::parseMbapHeader(const uint16_t target_transaction_id,
+Result Codec::parseMbapHeader(const uint16_t target_transaction_id,
                                     const uint8_t target_slave_id,
                                     const std::vector<uint8_t>& raw_mbap) {
     // Проверяем, что заголовок имеет достаточную длину (6 байт)
@@ -117,24 +117,24 @@ Result ModbusCodec::parseMbapHeader(const uint16_t target_transaction_id,
     // Валидация полей заголовка
     if (current_transaction_id != target_transaction_id) {
         // Несовпадение ID транзакции — признак потери синхронизации
-        SHOW_ERROR("Modbus",
+        SHOW_ERROR("Modbus:Codec",
                    "Transaction ID mismatch. Expected: " + std::to_string(target_transaction_id) +
                        ", Got: " + std::to_string(current_transaction_id));
         return Result::TRANSACTION_MISMATCH;
     }
     if (proto_id != 0) {
         // Некорректный ID протокола
-        SHOW_ERROR("Modbus", "Protocol invalid. Got: " + std::to_string(proto_id));
+        SHOW_ERROR("Modbus:Codec", "Protocol invalid. Got: " + std::to_string(proto_id));
         return Result::INVALID_PROTOCOL;
     }
     if (length < 2 || length > 253) {
         // Длина пакета выходит за допустимые пределы Modbus TCP
-        SHOW_ERROR("Modbus", "Length invalid. Got: " + std::to_string(length));
+        SHOW_ERROR("Modbus:Codec", "Length invalid. Got: " + std::to_string(length));
         return Result::INVALID_PDU_LENGTH;
     }
 
     if (current_slave_id != target_slave_id) {
-        SHOW_ERROR("Modbus", "Slave ID mismatch. Expected: " + toHex(current_slave_id) +
+        SHOW_ERROR("Modbus:Codec", "Slave ID mismatch. Expected: " + toHex(current_slave_id) +
                                  ", Got: " + toHex(target_slave_id));
         return Result::SLAVE_MISMATCH;
     }
@@ -142,10 +142,10 @@ Result ModbusCodec::parseMbapHeader(const uint16_t target_transaction_id,
     return Result::OK;
 }
 
-Result ModbusCodec::parsePdu(const std::vector<uint8_t>& pdu,
+Result Codec::parsePdu(const std::vector<uint8_t>& pdu,
                              std::vector<uint16_t>& modbus_registers) {
     if (pdu.size() < 2) {
-        SHOW_ERROR("Modbus", "PDU too short (" + std::to_string(pdu.size()) + " bytes). " +
+        SHOW_ERROR("Modbus:Codec", "PDU too short (" + std::to_string(pdu.size()) + " bytes). " +
                                  "Expected at least 2(func_code + byte_count).");
         return Result::PDU_TRUNCATED;
     }
@@ -153,7 +153,7 @@ Result ModbusCodec::parsePdu(const std::vector<uint8_t>& pdu,
     const uint8_t func_code = pdu[0];
     if ((func_code & 0x80) != 0) {
         const uint8_t exception_code = pdu[1];
-        SHOW_ERROR("Modbus", "Exception response. Function: " + toHex(func_code & 0x7F) +
+        SHOW_ERROR("Modbus:Codec", "Exception response. Function: " + toHex(func_code & 0x7F) +
                                  ", Exception Code: " + toHex(exception_code));
         return static_cast<Result>(exception_code);
     }
@@ -164,13 +164,13 @@ Result ModbusCodec::parsePdu(const std::vector<uint8_t>& pdu,
         const size_t expected_pdu_size = 2 + byte_count;
 
         if (pdu.size() != expected_pdu_size) {
-            SHOW_ERROR("Modbus", "PDU size mismatch. Actual size: " + std::to_string(pdu.size()) +
+            SHOW_ERROR("Modbus:Codec", "PDU size mismatch. Actual size: " + std::to_string(pdu.size()) +
                                      ", " + "Expected: " + std::to_string(expected_pdu_size));
             return Result::PDU_LENGTH_MISMATCH;
         }
 
         if (byte_count % 2 != 0) {
-            SHOW_ERROR("Modbus",
+            SHOW_ERROR("Modbus:Codec",
                        "Odd byte count (" + std::to_string(byte_count) + ")." +
                            "Register count must be whole number (each register = 2 bytes).");
             return Result::ODD_BYTE_COUNT;

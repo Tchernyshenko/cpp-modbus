@@ -5,11 +5,11 @@
 
 #include "result.hpp"
 
-namespace modbus {
+namespace modbus::codec {
 
 constexpr auto MBAP_SIZE = 7;
 
-class ModbusCodec {
+class Codec {
 public:
     static std::vector<uint8_t> encodeModbusHeader(uint16_t transaction_id, uint16_t pdu_size,
                                                    uint8_t slave_id);
