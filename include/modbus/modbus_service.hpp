@@ -5,15 +5,15 @@
 #include <mutex>
 
 #include "result.hpp"
-#include "transport/tcp/tcp_transport.hpp"
+#include "transport/tcp/modbus_transport.hpp"
 
-namespace modbus {
+namespace modbus::service {
 
 constexpr uint16_t INIT_TRANS_ID = 0x0001;
 
-class ModbusService final {
+class Service final {
 public:
-    explicit ModbusService(std::unique_ptr<transport::ITransport> transport);
+    explicit Service(std::unique_ptr<transport::IModbusTcpTransport> transport);
 
     Result readHoldingRegisters(uint8_t slave_id, uint16_t reg_addr, uint16_t reg_count,
                                 std::vector<uint16_t>& response);
@@ -31,7 +31,7 @@ private:
     std::atomic<uint16_t> transaction_id_{INIT_TRANS_ID};
 
     std::mutex transport_mutex_;
-    std::unique_ptr<transport::ITransport> transport_;
+    std::unique_ptr<transport::IModbusTcpTransport> transport_;
 
     template<class EncodeFunc>
     Result executeRequest(uint8_t current_slave_id, EncodeFunc encode_pdu,
